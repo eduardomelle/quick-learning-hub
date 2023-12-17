@@ -3,8 +3,8 @@
  */
 package br.com.eduardomelle.mainconsumer.config;
 
+import lombok.extern.slf4j.Slf4j;
 import org.apache.kafka.common.TopicPartition;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -16,8 +16,6 @@ import org.springframework.kafka.listener.DeadLetterPublishingRecoverer;
 import org.springframework.kafka.listener.DefaultErrorHandler;
 import org.springframework.util.backoff.FixedBackOff;
 
-import lombok.extern.slf4j.Slf4j;
-
 /**
  * 
  */
@@ -28,13 +26,16 @@ public class KafkaConfig {
 	@Value(value = "${spring.kafka.dead_letter_topic:}")
 	private String deadLetterTopic;
 
-	@Autowired
-	private KafkaProps kafkaProps;
+	private final KafkaProps kafkaProps;
 
-	@Autowired
-	private KafkaTemplate<String, String> kafkaTemplate;
+	private final KafkaTemplate<String, String> kafkaTemplate;
 
-	@Bean
+	public KafkaConfig(KafkaProps kafkaProps, KafkaTemplate<String, String> kafkaTemplate) {
+		this.kafkaProps = kafkaProps;
+		this.kafkaTemplate = kafkaTemplate;
+	}
+
+	@Bean("kafkaListenerContainerFactory")
 	public ConcurrentKafkaListenerContainerFactory<Object, Object> concurrentKafkaListenerContainerFactory() {
 		DefaultKafkaConsumerFactory defaultKafkaConsumerFactory = new DefaultKafkaConsumerFactory(
 				this.kafkaProps.consumerProps());
@@ -42,12 +43,15 @@ public class KafkaConfig {
 		DeadLetterPublishingRecoverer deadLetterPublishingRecoverer = new DeadLetterPublishingRecoverer(
 				this.kafkaTemplate, (record, ex) -> {
 					log.info("Exception {} occurred sending the record to the error topic {}", ex.getMessage(),
-							deadLetterTopic);
-					return new TopicPartition(this.deadLetterTopic, -1);
+							this.deadLetterTopic);
+
+					TopicPartition topicPartition = new TopicPartition(this.deadLetterTopic, -1);
+					return topicPartition;
 				});
 
-		CommonErrorHandler commonErrorHandler = new DefaultErrorHandler(deadLetterPublishingRecoverer,
-				new FixedBackOff(0L, 1L));
+		FixedBackOff fixedBackOff = new FixedBackOff(0L, 1L);
+
+		CommonErrorHandler commonErrorHandler = new DefaultErrorHandler(deadLetterPublishingRecoverer, fixedBackOff);
 
 		ConcurrentKafkaListenerContainerFactory<Object, Object> concurrentKafkaListenerContainerFactory = new ConcurrentKafkaListenerContainerFactory<>();
 		concurrentKafkaListenerContainerFactory.setConsumerFactory(defaultKafkaConsumerFactory);
